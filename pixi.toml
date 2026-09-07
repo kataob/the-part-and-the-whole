@@ -1,0 +1,24 @@
+[workspace]
+authors = ["Katarina Obradovic <kataob@dtu.dk>"]
+channels = ["conda-forge"]
+name = "the-part-and-the-whole"
+platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
+version = "0.1.0"
+
+[tasks]
+scenario = "python -m common.scenario"
+national = "python -m national.model"
+city = "python -m city.model"
+loop = "python -m coupling.loop"
+notebook = "jupyter lab notebooks/walkthrough.ipynb"
+
+[dependencies]
+python = "3.11.*"
+numpy = ">=2.4.6,<3"
+pyyaml = ">=6.0.3,<7"
+pyomo = ">=6.10.1,<7"
+highspy = ">=1.15.1,<2"
+matplotlib = ">=3.11.1,<4"
+jupyterlab = ">=4.6.3,<5"
+ipykernel = ">=7.3.0,<8"
+nbconvert = ">=7.17.1,<8"
