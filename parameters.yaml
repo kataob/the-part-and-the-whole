@@ -1,0 +1,146 @@
+# Parameters for the coupled national/city model.
+#
+# Everything here is synthetic or a documented ballpark figure -- this
+# is a teaching/demo project, not a calibrated study of a real country.
+# Cost figures are order-of-magnitude, in the range reported by:
+#   - NREL Annual Technology Baseline (ATB) 2024, "Moderate" scenario,
+#     for wind/solar/gas/battery CAPEX and fixed O&M
+#   - IEA Gas Market Report / World Energy Outlook, for a representative
+#     European-ish wholesale gas price
+# Annualisation: CAPEX -> $/MW/year uses a capital recovery factor at a
+# 6% discount rate over each technology's assumed economic life (see
+# common/scenario.py:annualise). Building-envelope and heat-pump-COP
+# figures are typical/illustrative values for temperate-climate
+# residential stock, not sourced from a specific dataset.
+
+random_seed: 42
+
+# ---------------------------------------------------------------------------
+# Representative days: one per season, hourly resolution (96 timesteps
+# total). day_of_year picks where in the seasonal cycle each one sits;
+# real_days is its weight and must sum to 365.
+# ---------------------------------------------------------------------------
+representative_days:
+  winter: {day_of_year: 15,  real_days: 91}
+  spring: {day_of_year: 105, real_days: 91}
+  summer: {day_of_year: 196, real_days: 91}
+  autumn: {day_of_year: 288, real_days: 92}
+
+# ---------------------------------------------------------------------------
+# Synthetic weather. One shared realisation feeds both models, so cold
+# snaps in the city's heat demand line up with the low-wind hours the
+# national model sees -- see common/weather.py.
+# ---------------------------------------------------------------------------
+weather:
+  temperature:
+    annual_mean_C: 10.0
+    seasonal_amplitude_C: 12.0       # peak-to-mean swing over the year
+    peak_warm_day_of_year: 196       # mid-July
+    diurnal_amplitude_C: 4.0         # peak-to-mean swing over the day
+    diurnal_peak_hour: 15
+    regime_amplitude_C: 4.0          # how much a "cold snap" moves temperature
+    noise_std_C: 1.0
+  wind:
+    seasonal_mean_cf: 0.35           # annual-average capacity factor
+    seasonal_amplitude_cf: 0.10      # higher in winter, lower in summer
+    regime_sensitivity: 0.30         # ties wind to the same regime as temperature
+    noise_std_cf: 0.08
+  solar:
+    peak_capacity_factor: 0.75       # clear-sky midday CF at summer solstice
+    winter_daylight_hours: 8
+    summer_daylight_hours: 16
+    cloud_noise_std: 0.10
+  regime:
+    # shared AR(1) "synoptic" process: negative = cold & still (low wind),
+    # positive = mild & breezy. This is what makes January evenings
+    # simultaneously cold AND low-wind, i.e. expensive.
+    ar1_coefficient: 0.85
+
+# ---------------------------------------------------------------------------
+# Model 1 -- the national power system
+# ---------------------------------------------------------------------------
+national:
+  # ~30% of what an all-gas system serving rest_of_country demand alone
+  # would emit (see common/scenario.py's __main__ for that check) --
+  # binding enough to matter, not so tight it prices everything at the
+  # value of lost load. Lower it to bind harder, raise it to bind less.
+  co2_cap_tonnes: 25_000_000
+
+  technologies:
+    gas:
+      capex_per_MW: 1_100_000        # $/MW, NREL ATB CCGT, moderate scenario
+      fixed_om_per_MW_year: 15_000
+      economic_life_years: 25
+      var_cost_per_MWh: 35.0         # fuel + variable O&M
+      emission_factor_tCO2_per_MWh: 0.35
+    wind:
+      capex_per_MW: 1_300_000        # $/MW, NREL ATB onshore wind, moderate scenario
+      fixed_om_per_MW_year: 28_000
+      economic_life_years: 25
+      var_cost_per_MWh: 0.0
+      emission_factor_tCO2_per_MWh: 0.0
+    solar:
+      capex_per_MW: 1_000_000        # $/MW, NREL ATB utility PV, moderate scenario
+      fixed_om_per_MW_year: 15_000
+      economic_life_years: 25
+      var_cost_per_MWh: 0.0
+      emission_factor_tCO2_per_MWh: 0.0
+    battery:
+      capex_per_MW: 1_400_000        # $/MW (power), 4-hour Li-ion, NREL ATB moderate
+      fixed_om_per_MW_year: 25_000
+      economic_life_years: 15
+      duration_hours: 4
+      charge_efficiency: 0.95
+      discharge_efficiency: 0.95
+
+  discount_rate: 0.06
+
+  # Rest-of-country demand: NOT behaviourally modeled -- a fixed
+  # synthetic load shape for the part of the nation that isn't the
+  # city. Sized as a round order-of-magnitude figure for a mid-size
+  # country/region; the city is calibrated as a fraction OF this
+  # (see city.target_share_of_national_peak below).
+  rest_of_country:
+    average_demand_MW: 24_000
+    winter_summer_demand_ratio: 1.35     # heating load elsewhere, as a simple multiplier
+    peak_to_average_ratio: 1.4
+    morning_peak_hour: 8
+    evening_peak_hour: 19
+
+# ---------------------------------------------------------------------------
+# Model 2 -- the city
+# ---------------------------------------------------------------------------
+city:
+  # THE design choice, per the brief: too small and the loop converges
+  # trivially on iteration two. 0.15-0.25 is the recommended range.
+  target_share_of_national_peak: 0.20
+
+  indoor_setpoint_C: 20.0
+
+  baseline_non_heating:
+    per_m2_W: 8.0                    # lighting/appliances/plug loads, average
+    occupied_hours_uplift: 1.3       # multiplier during waking/occupied hours
+
+  archetypes:
+    old_detached:
+      share: 0.25
+      specific_heat_loss_W_per_m2K: 3.0   # leaky, high surface-to-volume
+    new_detached:
+      share: 0.20
+      specific_heat_loss_W_per_m2K: 1.0   # well insulated
+    old_apartment:
+      share: 0.35
+      specific_heat_loss_W_per_m2K: 1.8   # leaky envelope, but low surface-to-volume
+    new_apartment:
+      share: 0.20
+      specific_heat_loss_W_per_m2K: 0.6   # efficient
+
+  heat_pump:
+    cop_anchor_high: [7.0, 3.5]      # (outdoor_C, COP)
+    cop_anchor_low: [-5.0, 2.0]
+    cop_floor: 1.3
+    share_steepness: 8.0             # logistic steepness, see city/model.py
+
+  gas_boiler:
+    efficiency: 0.90
+    price_per_MWh_fuel: 45.0         # roughly IEA European reference wholesale gas price
